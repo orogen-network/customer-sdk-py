@@ -37,6 +37,7 @@ class _ChatCompletions:
         useful_region: str | None = None,
         useful_max_price_per_million: int | None = None,
         useful_verify_receipt: bool = False,
+        useful_operator_pubkey_hex: str | None = None,
         **extra: Any,
     ) -> ChatResponse:
         if useful_nonce is not None:
@@ -88,6 +89,7 @@ class _ChatCompletions:
         if useful_verify_receipt and chat.useful_receipt is not None:
             chat.useful_verification = verify_receipt(
                 chat.useful_receipt,
+                operator_pubkey_hex=useful_operator_pubkey_hex,
                 expected_nonce=nonce,
             )
         return chat
@@ -101,9 +103,10 @@ class OrogenClient:
         base_url: gateway base URL, e.g. https://gateway.orogen.network/v1
         timeout: request timeout in seconds.
         http: optional pre-configured httpx.Client for testing.
-        nonce_mode: "customer" (RFC-0007 canonical — customer generates) or
-            "gateway-issued" (gateway issues via POST /nonces; SDK auto-fetches
-            before each chat completion). Default "customer".
+        nonce_mode: "gateway-issued" (gateway issues via POST /nonces; SDK auto-fetches
+            before each chat completion) or "customer" (customer generates). Default
+            "gateway-issued" to interoperate with gateways that require issued
+            nonces.
     """
 
     def __init__(
@@ -113,12 +116,14 @@ class OrogenClient:
         base_url: str = "https://gateway.orogen.network/v1",
         timeout: float = 60.0,
         http: httpx.Client | None = None,
-        nonce_mode: str = "customer",
+        nonce_mode: str = "gateway-issued",
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
         self.timeout = timeout
         self.http = http or httpx.Client()
+        if nonce_mode not in {"gateway-issued", "customer"}:
+            raise ValueError("nonce_mode must be 'gateway-issued' or 'customer'")
         self.nonce_mode = nonce_mode
         self.chat = _ChatNamespace(self)
 

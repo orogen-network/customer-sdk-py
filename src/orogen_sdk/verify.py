@@ -24,6 +24,8 @@ supplied, the receipt's canonical `signing_payload()` bytes are fed through
 
 from __future__ import annotations
 
+import base64
+
 from mining_types.crypto import verify_ed25519
 
 from orogen_sdk.nonce import current_timestamp_ms
@@ -46,8 +48,6 @@ def _signature_well_formed(sig: str | None) -> bool:
         except ValueError:
             return False
     # Otherwise treat as base64-ish — must decode and be 64 bytes.
-    import base64
-
     try:
         b = base64.b64decode(sig, validate=True)
     except (ValueError, base64.binascii.Error):  # type: ignore[attr-defined]
@@ -96,8 +96,6 @@ def verify_receipt(
         sig_hex = receipt.operator_signature
         if len(sig_hex) != 128:
             # Convert base64 → hex so verify_ed25519 sees the canonical form.
-            import base64
-
             try:
                 sig_hex = base64.b64decode(sig_hex, validate=True).hex()
             except Exception:

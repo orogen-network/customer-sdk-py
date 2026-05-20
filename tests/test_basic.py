@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import respx
 from httpx import Response
 from mining_types.crypto import generate_keypair, sign_ed25519
@@ -153,7 +155,7 @@ def test_fetch_nonce_via_gateway() -> None:
 
 
 @respx.mock
-def test_gateway_issued_mode_pre_fetches_nonce() -> None:
+def test_default_gateway_issued_mode_pre_fetches_nonce() -> None:
     fake_nonce = "0x" + "22" * 32
     fake_response = {
         "id": "cmpl-2",
@@ -165,7 +167,7 @@ def test_gateway_issued_mode_pre_fetches_nonce() -> None:
     }
     respx.post("https://test/v1/nonces").mock(return_value=Response(200, json={"nonce": fake_nonce}))
     respx.post("https://test/v1/chat/completions").mock(return_value=Response(200, json=fake_response))
-    with OrogenClient(api_key="test", base_url="https://test/v1", nonce_mode="gateway-issued") as client:
+    with OrogenClient(api_key="test", base_url="https://test/v1") as client:
         response = client.chat.completions.create(model="x", messages=[{"role": "user", "content": "hi"}])
     assert response.choices[0]["message"]["content"] == "hi"
 
@@ -204,8 +206,48 @@ def test_client_routes_request_no_useful_nonce_alias_on_wire() -> None:
             useful_nonce=nonce,
         )
     assert response.choices[0]["message"]["content"] == "hi"
-    import json as _json
-
-    body = _json.loads(captured["body"])
+    body = json.loads(captured["body"])
     assert body.get("customer_nonce") == nonce
     assert "useful_nonce" not in body  # M-W-06 — alias is gone
+
+
+@respx.mock
+def test_client_verify_receipt_requires_pubkey_for_overall_true() -> None:
+    priv_hex, pub_hex = generate_keypair()
+    nonce = generate_nonce()
+    receipt = _signed_receipt(priv_hex, nonce=nonce)
+    response_json = {
+        "id": "cmpl-verify",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": "x",
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+        "useful_receipt": receipt.model_dump(mode="json"),
+    }
+    respx.post("https://test/v1/chat/completions").mock(
+        side_effect=[
+            Response(200, json=response_json),
+            Response(200, json=response_json),
+        ]
+    )
+    with OrogenClient(api_key="test", base_url="https://test/v1") as client:
+        without_key = client.chat.completions.create(
+            model="x",
+            messages=[{"role": "user", "content": "hi"}],
+            useful_nonce=nonce,
+            useful_verify_receipt=True,
+        )
+    assert without_key.useful_verification is not None
+    assert without_key.useful_verification.signature_verified is False
+    assert without_key.useful_verification.overall is False
+
+    with OrogenClient(api_key="test", base_url="https://test/v1") as client:
+        with_key = client.chat.completions.create(
+            model="x",
+            messages=[{"role": "user", "content": "hi"}],
+            useful_nonce=nonce,
+            useful_verify_receipt=True,
+            useful_operator_pubkey_hex=pub_hex,
+        )
+    assert with_key.useful_verification is not None
+    assert with_key.useful_verification.overall is True

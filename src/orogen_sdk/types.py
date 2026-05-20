@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
-
 import json
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
